@@ -11,7 +11,15 @@ import (
 )
 
 //const INTERVAL_SEC = 600 // 10min
-const INTERVAL_SEC = 5 // 5sec
+const IntervalSec = 5 // 5sec
+
+type StatusCode int
+
+const (
+	StatusInit   StatusCode = 1
+	StatusCopied StatusCode = 2
+	StatusError  StatusCode = 99
+)
 
 func copyFile(src, dst string) error {
 	var err error
@@ -29,7 +37,7 @@ func copyFile(src, dst string) error {
 	}
 	defer dstfd.Close()
 
-	if _, err = io.Copy(dstfd, srcfd); err != nil {
+	if _, err = io.Copy(dstfd, srcfd); err == nil {
 		return err
 	}
 	if srcinfo, err = os.Stat(src); err != nil {
@@ -38,7 +46,7 @@ func copyFile(src, dst string) error {
 	return os.Chmod(dst, srcinfo.Mode())
 }
 
-func copyDir(src string, dst string) error {
+func copyDirSrcToDst(src string, dst string) error {
 	var err error
 	var fds []os.FileInfo
 	var srcinfo os.FileInfo
@@ -59,16 +67,31 @@ func copyDir(src string, dst string) error {
 		dstfp := path.Join(dst, fd.Name())
 
 		if fd.IsDir() {
-			if err = copyDir(srcfp, dstfp); err != nil {
+			if err = copyDirSrcToDst(srcfp, dstfp); err != nil {
 				fmt.Println(err)
+				return err
 			}
 		} else {
 			if err = copyFile(srcfp, dstfp); err != nil {
-				fmt.Println(err)
+				//fmt.Println("copyfile ERROR:",err)
+				return err
 			}
 		}
 	}
-	return nil
+	return err
+}
+func copyDir(src string, dst string, folders map[string]StatusCode, folderName string) error {
+	err := copyDirSrcToDst(src, dst)
+	if err == nil {
+		// リトライしなくていい
+		folders[folderName] = StatusCopied
+		fmt.Println("copied:", folderName, " to:", dst)
+	} else {
+		fmt.Println("copyDir ERROR:", err)
+		// リトライが必要
+		folders[folderName] = StatusError
+	}
+	return err
 }
 
 func Exists(filename string) bool {
@@ -88,25 +111,52 @@ func main() {
 		return
 	}
 
-	t := time.NewTicker(INTERVAL_SEC * time.Second)
+	t := time.NewTicker(IntervalSec * time.Second)
 	defer t.Stop()
+
+	folderMap := map[string]StatusCode{}
 
 	for {
 		select {
 		case <-t.C:
-			files, err := ioutil.ReadDir(srcPath)
+			var err error
+			folders, err := ioutil.ReadDir(srcPath)
 			if err != nil {
 				panic(err)
 			}
-			for _, file := range files {
-				if file.IsDir() {
-					path := dstPath + "/" + file.Name()
-					if Exists(path) {
-						fmt.Println("Exist:", file.Name())
-					} else {
-						fmt.Println("copy:", file.Name(), " to:", dstPath)
-						copyDir(srcPath, dstPath)
+
+			tmpMap := map[string]StatusCode{}
+			for _, f := range folders {
+				code, exists := folderMap[f.Name()]
+				if exists {
+					tmpMap[f.Name()] = code
+				} else {
+					tmpMap[f.Name()] = StatusInit
+				}
+				fmt.Println("folderName:", f.Name(), ", code:", tmpMap[f.Name()])
+			}
+			folderMap = tmpMap
+
+			for folderName := range folderMap {
+
+				srcFolderPath := srcPath + "/" + folderName
+				destFolderPath := dstPath + "/" + folderName
+
+				if Exists(destFolderPath) {
+					fmt.Println("Exist:", folderName)
+					code, exists := folderMap[folderName]
+					if exists {
+						switch code {
+						case StatusInit:
+							folderMap[folderName] = StatusCopied
+						case StatusError:
+							//retry
+							copyDir(srcFolderPath, destFolderPath, folderMap, folderName)
+						default:
+						}
 					}
+				} else {
+					copyDir(srcFolderPath, destFolderPath, folderMap, folderName)
 				}
 			}
 		}
