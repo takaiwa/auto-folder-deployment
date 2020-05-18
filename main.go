@@ -151,12 +151,16 @@ func main() {
 							folderMap[folderName] = StatusCopied
 						case StatusError:
 							//retry
+							t.Stop()
 							copyDir(srcFolderPath, destFolderPath, folderMap, folderName)
+							t = time.NewTicker(IntervalSec * time.Second)
 						default:
 						}
 					}
 				} else {
+					t.Stop()
 					copyDir(srcFolderPath, destFolderPath, folderMap, folderName)
+					t = time.NewTicker(IntervalSec * time.Second)
 				}
 			}
 		}
