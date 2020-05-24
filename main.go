@@ -99,6 +99,18 @@ func Exists(filename string) bool {
 	return err == nil
 }
 
+func isCopied(src string, dst string) bool {
+	var ret bool
+
+	ret = Exists(dst)
+	if ret {
+		srcfiles, _ := ioutil.ReadDir(src)
+		destfiles, _ := ioutil.ReadDir(dst)
+		ret = len(srcfiles) <= len(destfiles)
+	}
+	return ret
+}
+
 func main() {
 	flag.Parse()
 	var srcPath, dstPath string
@@ -142,7 +154,7 @@ func main() {
 				srcFolderPath := srcPath + "/" + folderName
 				destFolderPath := dstPath + "/" + folderName
 
-				if Exists(destFolderPath) {
+				if isCopied(srcFolderPath, destFolderPath) {
 					fmt.Println("Exist:", folderName)
 					code, exists := folderMap[folderName]
 					if exists {
